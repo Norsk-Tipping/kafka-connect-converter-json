@@ -1,0 +1,5 @@
+/target/
+/demoApplication.lo
+/demoApplication.log
+/kafka-connect-converter-json.iml
+/proper.log
