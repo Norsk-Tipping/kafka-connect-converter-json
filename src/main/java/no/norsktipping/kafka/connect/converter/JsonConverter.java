@@ -9,6 +9,8 @@ import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.serializers.AbstractKafkaAvroDeserializer;
 import io.confluent.kafka.serializers.GenericContainerWithVersion;
 import io.confluent.kafka.serializers.KafkaAvroDeserializerConfig;
+import org.apache.avro.Conversions;
+import org.apache.avro.data.TimeConversions;
 import org.apache.avro.generic.*;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.EncoderFactory;
@@ -170,10 +172,20 @@ public class JsonConverter implements Converter {
                             });
 
                     //JSONENCODER
-                    final DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(((IndexedRecord) cr.value).getSchema());
+                    GenericData genericData = new GenericData();
+                    genericData.addLogicalTypeConversion(new Conversions.DecimalConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.DateConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.TimeMillisConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.TimeMicrosConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.TimestampMillisConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.TimestampMicrosConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.LocalTimestampMillisConversion());
+                    genericData.addLogicalTypeConversion(new TimeConversions.LocalTimestampMicrosConversion());
+
+                    final DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(((GenericContainer) cr.value).getSchema(), genericData);
                     final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                     final JsonEncoder encoder = getJsonEncoder(cr, outputStream);
-                    encoder.set
+                    encoder.setIncludeNamespace(false);
 
                     return new ExtractInstruction(o -> {
                         Struct targetStruct = new Struct(targetSchema);
@@ -183,7 +195,7 @@ public class JsonConverter implements Converter {
 
                         try {
                             outputStream.reset();
-                            writer.write((GenericRecord) o, encoder);
+                            writer.write(((GenericRecord) o), encoder);
                             encoder.flush();
                             targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
                         } catch (IOException e) {
@@ -195,8 +207,6 @@ public class JsonConverter implements Converter {
                                 throw new DataException(String.format("Could not close output stream when processing avro value \n: %s", cr.value), e);
                             }
                         }
-
-                        //targetStruct.put(jsonConverterConfig.getPayloadFieldName(), o.toString());
 
                         return new SchemaAndValue(targetSchema, targetStruct);
                     });
@@ -309,7 +319,6 @@ public class JsonConverter implements Converter {
                 return SchemaAndValue.NULL;
             }
             GenericContainer deserialized = containerWithVersion.container();
-            Integer version = containerWithVersion.version();
             //If value is avro record
             if (deserialized instanceof IndexedRecord) {
                 logger.trace("Deserialized avro {}", deserialized);
@@ -321,7 +330,6 @@ public class JsonConverter implements Converter {
                             SCHEMA_NAMES
                             ));
                 }
-
                 return extractInstructionCache.get(new CacheRequest(deserialized.getSchema().toString(), deserialized))
                         .getConverterFunction().apply(deserialized);
             } /*else if (deserialized instanceof NonRecordContainer) {
