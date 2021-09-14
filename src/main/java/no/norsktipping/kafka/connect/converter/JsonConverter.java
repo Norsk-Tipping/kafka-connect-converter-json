@@ -9,10 +9,10 @@ import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.serializers.AbstractKafkaAvroDeserializer;
 import io.confluent.kafka.serializers.GenericContainerWithVersion;
 import io.confluent.kafka.serializers.KafkaAvroDeserializerConfig;
-import org.apache.avro.generic.GenericArray;
-import org.apache.avro.generic.GenericContainer;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.generic.IndexedRecord;
+import org.apache.avro.generic.*;
+import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.io.JsonEncoder;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.SerializationException;
@@ -28,6 +28,8 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -167,12 +169,34 @@ public class JsonConverter implements Converter {
                                 gettingKeyFields.add(avroSchemaInstruction);
                             });
 
+                    //JSONENCODER
+                    final DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(((IndexedRecord) cr.value).getSchema());
+                    final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                    final JsonEncoder encoder = getJsonEncoder(cr, outputStream);
+                    encoder.set
+
                     return new ExtractInstruction(o -> {
                         Struct targetStruct = new Struct(targetSchema);
                         // Set the configured .keys prefixed fields with their values
                         gettingKeyFields.forEach(ai -> targetStruct.put(ai.newName, ai.instruction.apply(o)));
                         // Set the "payload.field.name" field with the raw message as JSON with a simple .toString() of the genericrecord
-                        targetStruct.put(jsonConverterConfig.getPayloadFieldName(), o.toString());
+
+                        try {
+                            outputStream.reset();
+                            writer.write((GenericRecord) o, encoder);
+                            encoder.flush();
+                            targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
+                        } catch (IOException e) {
+                            throw new DataException(String.format("Could not write avro record to json string \n: %s", cr.value), e);
+                        } finally {
+                            try {
+                                outputStream.close();
+                            } catch (IOException e) {
+                                throw new DataException(String.format("Could not close output stream when processing avro value \n: %s", cr.value), e);
+                            }
+                        }
+
+                        //targetStruct.put(jsonConverterConfig.getPayloadFieldName(), o.toString());
 
                         return new SchemaAndValue(targetSchema, targetStruct);
                     });
@@ -211,6 +235,16 @@ public class JsonConverter implements Converter {
             default:
                 throw new ConfigException(String.format("%s is not supported as %s by this converter", jsonConverterConfig.getInputFormat(), JsonConverterConfig.INPUT_FORMAT));
         }
+    }
+
+    private JsonEncoder getJsonEncoder(CacheRequest cr, ByteArrayOutputStream outputStream) {
+        final JsonEncoder encoder;
+        try {
+            encoder = EncoderFactory.get().jsonEncoder(((IndexedRecord) cr.value).getSchema(), outputStream);
+        } catch (IOException e) {
+            throw new DataException(String.format("Could not build a jsonEncoder for avro record \n: %s", cr.value), e);
+        }
+        return encoder;
     }
 
     public SchemaAndValue toConnectDataFromJson(String topic, byte[] value) {
@@ -288,7 +322,7 @@ public class JsonConverter implements Converter {
                             ));
                 }
 
-                return extractInstructionCache.get(new CacheRequest(deserialized.getSchema().getName(), deserialized))
+                return extractInstructionCache.get(new CacheRequest(deserialized.getSchema().toString(), deserialized))
                         .getConverterFunction().apply(deserialized);
             } /*else if (deserialized instanceof NonRecordContainer) {
                 SchemaBuilder newStructSchema = SchemaBuilder.struct().name("primitive");

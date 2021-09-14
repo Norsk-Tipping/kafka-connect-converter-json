@@ -1,41 +1,28 @@
 package no.norsktipping.kafka.connect.converter;
 
-import io.confluent.connect.avro.AvroData;
-import io.confluent.connect.avro.AvroDataConfig;
-import io.confluent.kafka.schemaregistry.avro.AvroSchema;
+import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
+import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
-import io.confluent.kafka.serializers.subject.RecordNameStrategy;
-
-import com.google.common.collect.ImmutableMap;
+import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
+import io.confluent.kafka.serializers.KafkaAvroSerializer;
+import io.confluent.kafka.serializers.subject.TopicRecordNameStrategy;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericRecordBuilder;
 import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.Schema.Type;
 import org.apache.kafka.connect.data.SchemaAndValue;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.junit.Before;
 import org.junit.Test;
-import org.powermock.reflect.Whitebox;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
-import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
-import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDe;
-import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
-import io.confluent.kafka.serializers.KafkaAvroSerializer;
-
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 // jsonConverter is a trivial combination of the serializers and the AvroData conversions, so
 // most testing is performed on AvroData since it is much easier to compare the results in Avro
@@ -43,7 +30,7 @@ import static org.junit.Assert.assertTrue;
 // work end-to-end.
 public class JsonConverterTest {
     private static final String TOPIC = "topic";
-
+    private static KafkaAvroSerializer serializer;
     private static final Map<String, ?> SR_CONFIG = Collections.singletonMap(
             AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081");
 
@@ -57,7 +44,7 @@ public class JsonConverterTest {
 
     @Before
     public void setUp() {
-    }
+          }
 
     //TODO: Refactor the commented tests
 /*    @Test
@@ -96,7 +83,7 @@ public class JsonConverterTest {
     }*/
 
     @Test
-    public void testComplex() {
+    public void testComplex() throws RestClientException, IOException {
         Map<String, String> map = Stream.of(
                 new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
                 new AbstractMap.SimpleImmutableEntry<>("schema.names", "ComplexSchemaName"),
@@ -107,34 +94,55 @@ public class JsonConverterTest {
                 )
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         converter.configure(map, false);
-        SchemaBuilder builder = SchemaBuilder.struct().name("ComplexSchemaName")
-                .field("int8", SchemaBuilder.int8().defaultValue((byte) 2).doc("int8 field").build())
-                .field("int16", Schema.INT16_SCHEMA)
-                .field("int32", Schema.INT32_SCHEMA)
-                .field("int64", Schema.INT64_SCHEMA)
-                .field("float32", Schema.FLOAT32_SCHEMA)
-                .field("float64", Schema.FLOAT64_SCHEMA)
-                .field("boolean", Schema.BOOLEAN_SCHEMA)
-                .field("string", SchemaBuilder.string().optional().defaultValue(null).build())
-                .field("bytes", Schema.BYTES_SCHEMA)
-                .field("array", SchemaBuilder.array(Schema.STRING_SCHEMA).build())
-                .field("map", SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.INT32_SCHEMA).build())
-                .field("mapNonStringKeys", SchemaBuilder.map(Schema.INT32_SCHEMA, Schema.INT32_SCHEMA)
-                        .build());
-        Schema schema = builder.build();
-        Struct original = new Struct(schema)
-                .put("int8", (byte) 12)
-                .put("int16", (short) 12)
-                .put("int32", 12)
-                .put("int64", 12L)
-                .put("float32", 12.2f)
-                .put("float64", 12.2)
-                .put("boolean", true)
-                .put("string", "stringy")
-                .put("bytes", ByteBuffer.wrap("foo".getBytes()))
-                .put("array", Arrays.asList("a", "b", "c"))
-                .put("map", Collections.singletonMap("field", 1))
-                .put("mapNonStringKeys", Collections.singletonMap(1, 1));
+
+        org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
+                .optionalInt("int32")
+                .endRecord();
+
+        org.apache.avro.Schema subrecord1Schema = org.apache.avro.SchemaBuilder.record("subrecord1").fields()
+                .name("subrecord2").type(subrecord2Schema)
+                .noDefault()
+                .name("array").type().array().items().unionOf()
+                .nullType().and().stringType().endUnion()
+                .noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .nullableInt("int8", 2)
+                .requiredInt("int16")
+                .requiredInt("int32")
+                .requiredInt("int64")
+                .requiredFloat("float32")
+                .requiredBoolean("boolean")
+                .optionalString("string")
+                .requiredBytes("bytes")
+                .name("array").type().array().items().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING)).noDefault()
+                .name("map").type().map().values().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT)).noDefault()
+                .name("subrecord1").type(subrecord1Schema).noDefault()
+                .endRecord()
+                ;
+
+        System.out.println(avroSchema);
+
+        GenericData.Record struct = new GenericRecordBuilder(avroSchema)
+                .set("int8", 12)
+                .set("int16", 12)
+                .set("int32", 12)
+                .set("int64", 12L)
+                .set("float32", 12.2f)
+                .set("boolean", true)
+                .set("string", "stringyåøæ¤#&|§")
+                .set("bytes", ByteBuffer.wrap("foo".getBytes()))
+                .set("array", Arrays.asList("a", "b", "c"))
+                .set("map", Collections.singletonMap("field", 1))
+                .set("subrecord1", new GenericRecordBuilder(subrecord1Schema)
+                        .set("subrecord2", new GenericRecordBuilder(subrecord2Schema)
+                                .set("int32", 199)
+                                .build())
+                        .set("array", Collections.singletonList("x"))
+                        .build())
+                .build();
 
         SchemaBuilder expectedBuilder = SchemaBuilder.struct()
                 .field("intkey", SchemaBuilder.int8().doc("int8 field").build())
@@ -144,22 +152,23 @@ public class JsonConverterTest {
         Schema expectedSchema = expectedBuilder.version(1).build();
         Struct expected = new Struct(expectedSchema)
                 .put("intkey", (byte) 12)
-                .put("stringkey", "stringy")
-                .put("event", original.toString());
+                .put("stringkey", "stringyåøæ¤#&|§")
+                .put("event", struct.toString());
 
-        byte[] converted = converter.fromConnectData(TOPIC, original.schema(), original);
-
-        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, converted);
+        schemaRegistry.register(TOPIC+ "-value", avroSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(Collections.singletonMap(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"), false);
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
         //assertEquals(expected, schemaAndValue.value());
         System.out.println(expected);
         System.out.println(schemaAndValue.value());
     }
 
     @Test
-    public void testComplexRecordNameStrategy() {
+    public void testComplexRecordNameStrategy() throws RestClientException, IOException {
         Map<String, String> map = Stream.of(
                 new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
-                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.VALUE_SUBJECT_NAME_STRATEGY, RecordNameStrategy.class.getName()),
+                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.VALUE_SUBJECT_NAME_STRATEGY, TopicRecordNameStrategy.class.getName()),
                 new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.SCHEMA_NAMES, "ComplexSchemaName, SimpleSchemaName"),
                 new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.int32", "intkey"),
                 new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.string", "stringkey"),
@@ -171,48 +180,74 @@ public class JsonConverterTest {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         converter.configure(map, false);
 
-        SchemaBuilder builder = SchemaBuilder.struct().name("ComplexSchemaName")
-                .field("int8", SchemaBuilder.int8().defaultValue((byte) 2).doc("int8 field").build())
-                .field("int16", Schema.INT16_SCHEMA)
-                .field("int32", Schema.INT32_SCHEMA)
-                .field("int64", Schema.INT64_SCHEMA)
-                .field("float32", Schema.FLOAT32_SCHEMA)
-                .field("float64", Schema.FLOAT64_SCHEMA)
-                .field("boolean", Schema.BOOLEAN_SCHEMA)
-                .field("string", SchemaBuilder.string().optional().defaultValue(null).build())
-                .field("bytes", Schema.BYTES_SCHEMA)
-                .field("array", SchemaBuilder.array(Schema.STRING_SCHEMA).build())
-                .field("map", SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.INT32_SCHEMA).build())
-                .field("mapNonStringKeys", SchemaBuilder.map(Schema.INT32_SCHEMA, Schema.INT32_SCHEMA)
-                        .build());
-        Schema schema = builder.build();
-        Struct original = new Struct(schema)
-                .put("int8", (byte) 12)
-                .put("int16", (short) 12)
-                .put("int32", 12)
-                .put("int64", 12L)
-                .put("float32", 12.2f)
-                .put("float64", 12.2)
-                .put("boolean", true)
-                .put("string", "stringy")
-                .put("bytes", ByteBuffer.wrap("foo".getBytes()))
-                .put("array", Arrays.asList("a", "b", "c"))
-                .put("map", Collections.singletonMap("field", 1))
-                .put("mapNonStringKeys", Collections.singletonMap(1, 1));
 
-        SchemaBuilder builderSimple = SchemaBuilder.struct().name("SimpleSchemaName")
-                .field("int8", SchemaBuilder.int8().defaultValue((byte) 2).doc("int8 field").build())
-                .field("int16", Schema.INT16_SCHEMA)
-                .field("intkey", Schema.INT32_SCHEMA)
-                .field("keyname", SchemaBuilder.string().optional().defaultValue(null).build())
-                .field("int64", Schema.INT64_SCHEMA);
-        Schema schemaSimple = builderSimple.build();
-        Struct originalSimple = new Struct(schemaSimple)
-                .put("int8", (byte) 12)
-                .put("int16", (short) 12)
-                .put("intkey", 12)
-                .put("keyname", "stringy")
-                .put("int64", 12L);
+        org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
+                .optionalInt("int32")
+                .endRecord();
+
+        org.apache.avro.Schema subrecord1Schema = org.apache.avro.SchemaBuilder.record("subrecord1").fields()
+                .name("subrecord2").type(subrecord2Schema)
+                .noDefault()
+                .name("array").type().array().items().unionOf()
+                .nullType().and().stringType().endUnion()
+                .noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .nullableInt("int8", 2)
+                .requiredInt("int16")
+                .requiredInt("int32")
+                .requiredInt("int64")
+                .requiredFloat("float32")
+                .requiredBoolean("boolean")
+                .optionalString("string")
+                .requiredBytes("bytes")
+                .name("array").type().array().items().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING)).noDefault()
+                .name("map").type().map().values().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT)).noDefault()
+                .name("subrecord1").type(subrecord1Schema).noDefault()
+                .endRecord()
+                ;
+
+        System.out.println(avroSchema);
+
+        GenericData.Record struct = new GenericRecordBuilder(avroSchema)
+                .set("int8", 12)
+                .set("int16", 12)
+                .set("int32", 12)
+                .set("int64", 12L)
+                .set("float32", 12.2f)
+                .set("boolean", true)
+                .set("string", "stringyåøæ¤#&|§")
+                .set("bytes", ByteBuffer.wrap("foo".getBytes()))
+                .set("array", Arrays.asList("a", "b", "c"))
+                .set("map", Collections.singletonMap("field", 1))
+                .set("subrecord1", new GenericRecordBuilder(subrecord1Schema)
+                        .set("subrecord2", new GenericRecordBuilder(subrecord2Schema)
+                                .set("int32", 199)
+                                .build())
+                        .set("array", Collections.singletonList("x"))
+                        .build())
+                .build();
+
+        org.apache.avro.Schema simpleAvroSchema = org.apache.avro.SchemaBuilder.record("com.example.SimpleSchemaName")
+                .fields()
+                .nullableInt("int8", 2)
+                .requiredInt("int16")
+                .requiredInt("intkey")
+                .optionalString("keyname")
+                .requiredLong("int64")
+                .endRecord();
+
+        System.out.println(simpleAvroSchema);
+
+        GenericData.Record simpleStruct = new GenericRecordBuilder(simpleAvroSchema)
+                .set("int8", 12)
+                .set("int16", 12)
+                .set("intkey", 12)
+                .set("keyname", "stringyåøæ¤#&|§")
+                .set("int64", 12L)
+                .build();
 
         SchemaBuilder expectedBuilder = SchemaBuilder.struct()
                 .field("intkey", SchemaBuilder.int8().doc("int8 field").build())
@@ -220,19 +255,29 @@ public class JsonConverterTest {
                 .field("event", Schema.STRING_SCHEMA);
         // Because of registration in schema registry and lookup, we'll have added a version number
         Schema expectedSchema = expectedBuilder.version(1).build();
+
         Struct expected = new Struct(expectedSchema)
                 .put("intkey", (byte) 12)
-                .put("stringkey", "stringy")
-                .put("event", original.toString());
+                .put("stringkey", "stringyåøæ¤#&|§")
+                .put("event", struct.toString());
 
-        byte[] converted = converter.fromConnectData(TOPIC, original.schema(), original);
-        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, converted);
+        Map<String, String> smap = Stream.of(
+                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
+                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.VALUE_SUBJECT_NAME_STRATEGY, TopicRecordNameStrategy.class.getName())
+        )
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+        schemaRegistry.register(TOPIC + avroSchema.getFullName() + "-value", avroSchema);
+        schemaRegistry.register(TOPIC + simpleAvroSchema.getFullName() + "-value", simpleAvroSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(smap, false);
+
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
         //assertEquals(expected, schemaAndValue.value());
         System.out.println(expected);
         System.out.println(schemaAndValue.value());
 
-        byte[] convertedSimple = converter.fromConnectData(TOPIC, originalSimple.schema(), originalSimple);
-        SchemaAndValue schemaAndValueSimple = converter.toConnectData(TOPIC, convertedSimple);
+        SchemaAndValue schemaAndValueSimple = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, simpleStruct));
         //assertEquals(expected, schemaAndValue.value());
         System.out.println(expected);
         System.out.println(schemaAndValueSimple.value());
@@ -282,7 +327,7 @@ public class JsonConverterTest {
     }
 
     @Test
-    public void testCacheReuseOnMultipleComplex() {
+    public void testCacheReuseOnMultipleComplex() throws RestClientException, IOException {
         Map<String, String> map = Stream.of(
                 new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
                 new AbstractMap.SimpleImmutableEntry<>("schema.names", "ComplexSchemaName"),
@@ -292,35 +337,58 @@ public class JsonConverterTest {
                 new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro")
         )
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
         converter.configure(map, false);
-        SchemaBuilder builder = SchemaBuilder.struct().name("ComplexSchemaName")
-                .field("int8", SchemaBuilder.int8().defaultValue((byte) 2).doc("int8 field").build())
-                .field("int16", Schema.INT16_SCHEMA)
-                .field("int32", Schema.INT32_SCHEMA)
-                .field("int64", Schema.INT64_SCHEMA)
-                .field("float32", Schema.FLOAT32_SCHEMA)
-                .field("float64", Schema.FLOAT64_SCHEMA)
-                .field("boolean", Schema.BOOLEAN_SCHEMA)
-                .field("string", SchemaBuilder.string().optional().defaultValue(null).build())
-                .field("bytes", Schema.BYTES_SCHEMA)
-                .field("array", SchemaBuilder.array(Schema.STRING_SCHEMA).build())
-                .field("map", SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.INT32_SCHEMA).build())
-                .field("mapNonStringKeys", SchemaBuilder.map(Schema.INT32_SCHEMA, Schema.INT32_SCHEMA)
-                        .build());
-        Schema schema = builder.build();
-        Struct original = new Struct(schema)
-                .put("int8", (byte) 12)
-                .put("int16", (short) 12)
-                .put("int32", 12)
-                .put("int64", 12L)
-                .put("float32", 12.2f)
-                .put("float64", 12.2)
-                .put("boolean", true)
-                .put("string", "stringy")
-                .put("bytes", ByteBuffer.wrap("foo".getBytes()))
-                .put("array", Arrays.asList("a", "b", "c"))
-                .put("map", Collections.singletonMap("field", 1))
-                .put("mapNonStringKeys", Collections.singletonMap(1, 1));
+
+        org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
+                .optionalInt("int32")
+                .endRecord();
+
+        org.apache.avro.Schema subrecord1Schema = org.apache.avro.SchemaBuilder.record("subrecord1").fields()
+                .name("subrecord2").type(subrecord2Schema)
+                .noDefault()
+                .name("array").type().array().items().unionOf()
+                .nullType().and().stringType().endUnion()
+                .noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .nullableInt("int8", 2)
+                .requiredInt("int16")
+                .requiredInt("int32")
+                .requiredInt("int64")
+                .requiredFloat("float32")
+                .requiredBoolean("boolean")
+                .optionalString("string")
+                .requiredBytes("bytes")
+                .name("array").type().array().items().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING)).noDefault()
+                .name("map").type().map().values().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT)).noDefault()
+                .name("subrecord1").type(subrecord1Schema).noDefault()
+                .endRecord()
+                ;
+
+        System.out.println(avroSchema);
+
+        GenericData.Record struct = new GenericRecordBuilder(avroSchema)
+                .set("int8", 12)
+                .set("int16", 12)
+                .set("int32", 12)
+                .set("int64", 12L)
+                .set("float32", 12.2f)
+                .set("boolean", true)
+                .set("string", "stringyåøæ¤#&|§")
+                .set("bytes", ByteBuffer.wrap("foo".getBytes()))
+                .set("array", Arrays.asList("a", "b", "c"))
+                .set("map", Collections.singletonMap("field", 1))
+                .set("subrecord1", new GenericRecordBuilder(subrecord1Schema)
+                        .set("subrecord2", new GenericRecordBuilder(subrecord2Schema)
+                                .set("int32", 199)
+                                .build())
+                        .set("array", Collections.singletonList("x"))
+                        .build())
+                .build();
+
 
         SchemaBuilder expectedBuilder = SchemaBuilder.struct()
                 .field("intkey", SchemaBuilder.int8().doc("int8 field").build())
@@ -331,25 +399,27 @@ public class JsonConverterTest {
         Struct expected = new Struct(expectedSchema)
                 .put("intkey", (byte) 12)
                 .put("stringkey", "stringy")
-                .put("event", original.toString());
+                .put("event", struct.toString());
 
-        byte[] converted = converter.fromConnectData(TOPIC, original.schema(), original);
+        schemaRegistry.register(TOPIC+ "-value", avroSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(Collections.singletonMap(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"), false);
 
-        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, converted);
+
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
         System.out.println(expected);
         System.out.println(schemaAndValue.value());
-        SchemaAndValue schemaAndValue2 = converter.toConnectData(TOPIC, converted);
+        SchemaAndValue schemaAndValue2 = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
         System.out.println(expected);
-        System.out.println(schemaAndValue.value());
-        SchemaAndValue schemaAndValue3 = converter.toConnectData(TOPIC, converted);
+        System.out.println(schemaAndValue2.value());
+        SchemaAndValue schemaAndValue3 = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
         System.out.println(expected);
-        System.out.println(schemaAndValue.value());
+        System.out.println(schemaAndValue3.value());
         //assertEquals(expected, schemaAndValue.value());
-
     }
 
     @Test
-    public void testComplexArrayItemAsKey() {
+    public void testComplexArrayItemAsKey() throws RestClientException, IOException {
         Map<String, String> map = Stream.of(
                 new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
                 new AbstractMap.SimpleImmutableEntry<>("schema.names", "ComplexSchemaName"),
@@ -361,51 +431,73 @@ public class JsonConverterTest {
         )
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         converter.configure(map, false);
-        SchemaBuilder builder = SchemaBuilder.struct().name("ComplexSchemaName")
-                .field("int8", SchemaBuilder.int8().defaultValue((byte) 2).doc("int8 field").build())
-                .field("int16", Schema.INT16_SCHEMA)
-                .field("int32", Schema.INT32_SCHEMA)
-                .field("int64", Schema.INT64_SCHEMA)
-                .field("float32", Schema.FLOAT32_SCHEMA)
-                .field("float64", Schema.FLOAT64_SCHEMA)
-                .field("boolean", Schema.BOOLEAN_SCHEMA)
-                .field("string", SchemaBuilder.string().optional().defaultValue(null).build())
-                .field("bytes", Schema.BYTES_SCHEMA)
-                .field("array", SchemaBuilder.array(Schema.STRING_SCHEMA).build())
-                .field("map", SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.INT32_SCHEMA).build())
-                .field("mapNonStringKeys", SchemaBuilder.map(Schema.INT32_SCHEMA, Schema.INT32_SCHEMA)
-                        .build());
-        Schema schema = builder.build();
-        Struct original = new Struct(schema)
-                .put("int8", (byte) 12)
-                .put("int16", (short) 12)
-                .put("int32", 12)
-                .put("int64", 12L)
-                .put("float32", 12.2f)
-                .put("float64", 12.2)
-                .put("boolean", true)
-                .put("string", "stringy")
-                .put("bytes", ByteBuffer.wrap("foo".getBytes()))
-                .put("array", Arrays.asList("a", "b", "c"))
-                .put("map", Collections.singletonMap("field", 1))
-                .put("mapNonStringKeys", Collections.singletonMap(1, 1));
+        org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
+                .optionalInt("int32")
+                .endRecord();
+
+        org.apache.avro.Schema subrecord1Schema = org.apache.avro.SchemaBuilder.record("subrecord1").fields()
+                .name("subrecord2").type(subrecord2Schema)
+                .noDefault()
+                .name("array").type().array().items().unionOf()
+                .nullType().and().stringType().endUnion()
+                .noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .nullableInt("int8", 2)
+                .requiredInt("int16")
+                .requiredInt("int32")
+                .requiredInt("int64")
+                .requiredFloat("float32")
+                .requiredBoolean("boolean")
+                .optionalString("string")
+                .requiredBytes("bytes")
+                .name("array").type().array().items().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING)).noDefault()
+                .name("map").type().map().values().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT)).noDefault()
+                .name("subrecord1").type(subrecord1Schema).noDefault()
+                .endRecord()
+                ;
+        System.out.println(avroSchema);
+
+        GenericData.Record struct = new GenericRecordBuilder(avroSchema)
+                .set("int8", 12)
+                .set("int16", 12)
+                .set("int32", 12)
+                .set("int64", 12L)
+                .set("float32", 12.2f)
+                .set("boolean", true)
+                .set("string", "stringyåøæ¤#&|§")
+                .set("bytes", ByteBuffer.wrap("foo".getBytes()))
+                .set("array", Arrays.asList("a", "b", "c"))
+                .set("map", Collections.singletonMap("field", 1))
+                .set("subrecord1", new GenericRecordBuilder(subrecord1Schema)
+                        .set("subrecord2", new GenericRecordBuilder(subrecord2Schema)
+                                .set("int32", 199)
+                                .build())
+                        .set("array", Collections.singletonList("x"))
+                        .build())
+                .build();
 
         SchemaBuilder expectedBuilder = SchemaBuilder.struct()
                 .field("intkey", SchemaBuilder.int8().doc("int8 field").build())
-                .field("stringkey", Schema.STRING_SCHEMA)
                 .field("arraykey", Schema.STRING_SCHEMA)
+                .field("stringkey", Schema.STRING_SCHEMA)
                 .field("event", Schema.STRING_SCHEMA);
         // Because of registration in schema registry and lookup, we'll have added a version number
         Schema expectedSchema = expectedBuilder.version(1).build();
         Struct expected = new Struct(expectedSchema)
                 .put("intkey", (byte) 12)
-                .put("stringkey", "stringy")
                 .put("arraykey", "a")
-                .put("event", original.toString());
+                .put("stringkey", "stringyåøæ¤#&|§")
+                .put("event", struct.toString());
 
-        byte[] converted = converter.fromConnectData(TOPIC, original.schema(), original);
+        schemaRegistry.register(TOPIC+ "-value", avroSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(Collections.singletonMap(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"), false);
 
-        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, converted);
+
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
         //assertEquals(expected, schemaAndValue.value());
         System.out.println(expected);
         System.out.println(schemaAndValue.value());
