@@ -6,28 +6,25 @@ import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientExcept
 import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
 import io.confluent.kafka.serializers.KafkaAvroSerializer;
 import io.confluent.kafka.serializers.subject.TopicRecordNameStrategy;
+import org.apache.avro.LogicalTypes;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecordBuilder;
-import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.SchemaAndValue;
-import org.apache.kafka.connect.data.SchemaBuilder;
-import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.data.Date;
+import org.apache.kafka.connect.data.*;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.AbstractMap;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-// jsonConverter is a trivial combination of the serializers and the AvroData conversions, so
-// most testing is performed on AvroData since it is much easier to compare the results in Avro
-// runtime format than in serialized form. This just adds a few sanity checks to make sure things
-// work end-to-end.
+import static no.norsktipping.kafka.connect.converter.JsonConverter.createLogicalTypesStringSchema;
+
 public class JsonConverterTest {
     private static final String TOPIC = "topic";
     private static KafkaAvroSerializer serializer;
@@ -45,42 +42,6 @@ public class JsonConverterTest {
     @Before
     public void setUp() {
           }
-
-    //TODO: Refactor the commented tests
-/*    @Test
-    public void testConfigure() {
-        converter.configure(SR_CONFIG, true);
-        assertTrue(Whitebox.<Boolean>getInternalState(converter, "isKey"));
-        assertNotNull(Whitebox.getInternalState(
-                Whitebox.<AbstractKafkaSchemaSerDe>getInternalState(converter, "serializer"),
-                "schemaRegistry"));
-    }*/
-
-/*    @Test
-    public void testConfigureAlt() {
-        converter.configure(SR_CONFIG, false);
-        assertFalse(Whitebox.<Boolean>getInternalState(converter, "isKey"));
-        assertNotNull(Whitebox.getInternalState(
-                Whitebox.<AbstractKafkaSchemaSerDe>getInternalState(converter, "serializer"),
-                "schemaRegistry"));
-    }*/
-
-/*    @Test
-    public void testPrimitive() {
-        Map<String, String> map = Stream.of(
-                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
-                new AbstractMap.SimpleImmutableEntry<>("keys.int32", "test"),
-                new AbstractMap.SimpleImmutableEntry<>("keys.string", "test")
-        )
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        converter.configure(map, false);
-        SchemaAndValue original = new SchemaAndValue(Schema.BOOLEAN_SCHEMA, true);
-        byte[] converted = converter.fromConnectData(TOPIC, original.schema(), original.value());
-        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, converted);
-        // Because of registration in schema registry and lookup, we'll have added a version number
-        SchemaAndValue expected = new SchemaAndValue(SchemaBuilder.bool().version(1).build(), true);
-        assertEquals(expected, schemaAndValue);
-    }*/
 
     @Test
     public void testComplex() throws RestClientException, IOException {
@@ -503,198 +464,314 @@ public class JsonConverterTest {
         System.out.println(schemaAndValue.value());
     }
 
-/*    @Test
-    public void testTypeBytes() {
-        Schema schema = SchemaBuilder.bytes().build();
-        byte[] b = converter.fromConnectData("topic", schema, "jellomellow".getBytes());
-        SchemaAndValue sv = converter.toConnectData("topic", b);
-        assertEquals(Type.BYTES, sv.schema().type());
-        assertArrayEquals("jellomellow".getBytes(), ((ByteBuffer) sv.value()).array());
-    }*/
-
-/*    @Test
-    public void testNull() {
-        // Because of the way our serialization works, it's expected that we'll lose schema information
-        // when the entire schema is optional. The null value should be written as a null and this
-        // should mean we also do *not* register a schema.
-        byte[] converted = converter.fromConnectData(TOPIC, Schema.OPTIONAL_BOOLEAN_SCHEMA, null);
-        assertNull(converted);
-        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, converted);
-        assertEquals(SchemaAndValue.NULL, schemaAndValue);
-    }*/
-
-/*    @Test
-    public void testVersionExtractedForDefaultSubjectNameStrategy() throws Exception {
-        // Version info should be extracted even if the data was not created with Copycat. Manually
-        // register a few compatible schemas and validate that data serialized with our normal
-        // serializer can be read and gets version info inserted
-        String subject = TOPIC + "-value";
-        KafkaAvroSerializer serializer = new KafkaAvroSerializer(schemaRegistry);
-        JsonConverter jsonConverter = new JsonConverter(schemaRegistry);
-        jsonConverter.configure(Collections.singletonMap("schema.registry.url", "http://fake-url"), false);
-        testVersionExtracted(subject, serializer, jsonConverter);
-
-    }*/
-/*
     @Test
+    public void testLogicalType() throws RestClientException, IOException {
+        Map<String, String> map = Stream.of(
+                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
+                new AbstractMap.SimpleImmutableEntry<>("schema.names", "ComplexSchemaName"),
+                new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.date", "datekey"),
+                new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.time", "timekey"),
+                new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.timestamp", "timestampkey"),
+                new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.decimal", "decimalkey"),
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.PAYLOAD_FIELD_NAME, "event"),
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro")
+        )
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        converter.configure(map, false);
 
-    public void testVersionExtractedForRecordSubjectNameStrategy() throws Exception {
-        // Version info should be extracted even if the data was not created with Copycat. Manually
-        // register a few compatible schemas and validate that data serialized with our normal
-        // serializer can be read and gets version info inserted
-        String subject =  "Foo";
-        Map<String, Object> configs = ImmutableMap.<String, Object>of("schema.registry.url", "http://fake-url", "value.subject.name.strategy", RecordNameStrategy.class.getName());
-        KafkaAvroSerializer serializer = new KafkaAvroSerializer(schemaRegistry);
-        serializer.configure(configs, false);
-        JsonConverter jsonConverter = new JsonConverter(schemaRegistry);
+        org.apache.avro.Schema dateSchema = org.apache.avro.SchemaBuilder.builder().intType();
+        LogicalTypes.date().addToSchema(dateSchema);
 
-        jsonConverter.configure(configs, false);
-        testVersionExtracted(subject, serializer, jsonConverter);
+        org.apache.avro.Schema timeSchema = org.apache.avro.SchemaBuilder.builder().intType();
+        LogicalTypes.timeMillis().addToSchema(timeSchema);
 
+        org.apache.avro.Schema timemSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.timeMicros().addToSchema(timemSchema);
+
+        org.apache.avro.Schema tsSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.timestampMillis().addToSchema(tsSchema);
+
+        org.apache.avro.Schema tsmSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.timestampMicros().addToSchema(tsmSchema);
+
+        org.apache.avro.Schema ltsSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.localTimestampMillis().addToSchema(ltsSchema);
+
+        org.apache.avro.Schema ltsmSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.localTimestampMicros().addToSchema(ltsmSchema);
+
+        org.apache.avro.Schema decimalSchema = org.apache.avro.SchemaBuilder.builder().bytesType();
+        LogicalTypes.decimal(64, 0).addToSchema(decimalSchema);
+
+        org.apache.avro.Schema uuidSchema = org.apache.avro.SchemaBuilder.builder().stringType();
+        LogicalTypes.uuid().addToSchema(uuidSchema);
+
+        int dateDefValue = 100;
+        int timeDefValue = 1000 * 60 * 60 * 2;
+        long tsDefValue = 1000 * 60 * 60 * 24 * 365 + 100;
+        String uuidDefValue = UUID.randomUUID().toString();
+        java.util.Date dateDef = Date.toLogical(Date.SCHEMA, dateDefValue);
+        java.util.Date timeDef = Time.toLogical(Time.SCHEMA, timeDefValue);
+        java.util.Date tsDef = Timestamp.toLogical(Timestamp.SCHEMA, tsDefValue);
+        BigDecimal decimalDef = new BigDecimal(BigInteger.valueOf(314159L), 0);
+        byte[] decimalDefVal = decimalDef.unscaledValue().toByteArray();
+
+        org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
+                .name("optionaldate").type().unionOf().nullType().and().type(dateSchema).endUnion().nullDefault()
+                .name("optionaltime").type().unionOf().nullType().and().type(timeSchema).endUnion().nullDefault()
+                .name("optionaltimemicros").type().unionOf().nullType().and().type(timemSchema).endUnion().nullDefault()
+                .name("optionaltimestamp").type().unionOf().nullType().and().type(tsSchema).endUnion().nullDefault()
+                .name("optionaltimestampmicros").type().unionOf().nullType().and().type(tsmSchema).endUnion().nullDefault()
+                .name("optionallocaltimestamp").type().unionOf().nullType().and().type(ltsSchema).endUnion().nullDefault()
+                .name("optionallocaltimestampmicros").type().unionOf().nullType().and().type(ltsmSchema).endUnion().nullDefault()
+                .name("optionaldecimal").type().unionOf().nullType().and().type(decimalSchema).endUnion().nullDefault()
+                .name("optionaluuid").type().unionOf().nullType().and().type(uuidSchema).endUnion().nullDefault()
+                .endRecord();
+
+        org.apache.avro.Schema subrecord1Schema = org.apache.avro.SchemaBuilder.record("subrecord1").fields()
+                .name("date_default").type(dateSchema).withDefault(dateDefValue)
+                .name("time_default").type(timeSchema).withDefault(timeDefValue)
+                .name("timemicros_default").type(timemSchema).withDefault(timeDefValue)
+                .name("timestamp_default").type(tsSchema).withDefault(tsDefValue)
+                .name("timestampmicros_default").type(tsmSchema).withDefault(tsDefValue)
+                .name("localtimestamp_default").type(ltsSchema).withDefault(tsDefValue)
+                .name("localtimestampmicros_default").type(ltsmSchema).withDefault(tsDefValue)
+                .name("decimal_default").type(decimalSchema).withDefault(decimalDefVal)
+                .name("uuid_default").type(uuidSchema).withDefault(uuidDefValue)
+                .name("subrecord2").type(subrecord2Schema).noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .name("date").type(dateSchema).noDefault()
+                .name("time").type(timeSchema).noDefault()
+                .name("timemicros").type(timemSchema).noDefault()
+                .name("timestamp").type(tsSchema).noDefault()
+                .name("timestampmicros").type(tsmSchema).noDefault()
+                .name("localtimestamp").type(ltsSchema).noDefault()
+                .name("localtimestampmicros").type(ltsmSchema).noDefault()
+                .name("decimal").type(decimalSchema).noDefault()
+                .name("uuid").type(uuidSchema).noDefault()
+                .name("subrecord1").type(subrecord1Schema).noDefault()
+                .endRecord()
+                ;
+
+        System.out.println(avroSchema);
+
+        GenericData.Record subrecordUnionStruct = new GenericRecordBuilder(subrecord2Schema)
+                .set("optionaldate", dateDefValue)
+                .set("optionaltime", null)
+                .set("optionaltimemicros", tsDefValue)
+                .set("optionaltimestamp", null)
+                .set("optionaltimestampmicros", tsDefValue)
+                .set("optionallocaltimestamp", null)
+                .set("optionallocaltimestampmicros", tsDefValue)
+                .set("optionaldecimal", null)
+                .set("optionaluuid", uuidDefValue)
+                .build();
+
+        GenericData.Record subrecordDefaultsstruct = new GenericRecordBuilder(subrecord1Schema)
+                .set("subrecord2", subrecordUnionStruct)
+                .build();
+
+        GenericData.Record struct = new GenericRecordBuilder(avroSchema)
+                .set("date", dateDefValue)
+                .set("time", timeDefValue)
+                .set("timemicros", tsDefValue)
+                .set("timestamp", tsDefValue)
+                .set("timestampmicros", tsDefValue)
+                .set("localtimestamp", tsDefValue)
+                .set("localtimestampmicros", tsDefValue)
+                .set("decimal", ByteBuffer.wrap(decimalDefVal))
+                .set("uuid", uuidDefValue)
+                .set("subrecord1", subrecordDefaultsstruct)
+                .build();
+
+        /*SchemaBuilder expectedBuilder = SchemaBuilder.struct()
+                .field("datekey", Schema.STRING_SCHEMA)
+                .field("timekey", Schema.STRING_SCHEMA)
+                .field("timestampkey", Schema.STRING_SCHEMA)
+                .field("decimalkey", Schema.STRING_SCHEMA)
+                .field("event", Schema.STRING_SCHEMA);
+        // Because of registration in schema registry and lookup, we'll have added a version number
+        Schema expectedSchema = expectedBuilder.version(1).build();*/
+
+        /*GenericDatumWriter<GenericData.Record> datumWriter = new GenericDatumWriter<>(avroSchema);
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        final JsonEncoder encoder = EncoderFactory.get().jsonEncoder(avroSchema, outputStream);
+        encoder.setIncludeNamespace(false);
+        datumWriter.write(struct, encoder);
+        encoder.flush();
+        outputStream.close();*/
+
+
+        /*ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        GenericData genericData = new GenericData();
+        genericData.addLogicalTypeConversion(new Conversions.UUIDConversion());
+        genericData.addLogicalTypeConversion(new Conversions.DecimalConversion());
+        genericData.addLogicalTypeConversion(new TimeConversions.DateConversion());
+        //genericData.addLogicalTypeConversion(new JsonConverter.JDateConversion());
+        genericData.addLogicalTypeConversion(new TimeConversions.TimestampMillisConversion());
+        genericData.addLogicalTypeConversion(new TimeConversions.TimestampMicrosConversion());
+        genericData.addLogicalTypeConversion(new TimeConversions.TimeMicrosConversion());
+        genericData.addLogicalTypeConversion(new TimeConversions.LocalTimestampMicrosConversion());
+        genericData.addLogicalTypeConversion(new TimeConversions.LocalTimestampMillisConversion());
+        GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<>(avroSchema, genericData);
+        JsonEncoder encoder = EncoderFactory.get().jsonEncoder(avroSchema, outputStream);
+        writer.write(struct, encoder);
+        encoder.flush();
+        outputStream.close();*/
+
+        /*final GenericDatumReader<GenericRecord> reader = new GenericDatumReader<>(avroSchema, avroSchema, genericData);
+        final ByteArrayInputStream inputStream = new ByteArrayInputStream(baos.toByteArray());
+        final BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(inputStream, null);
+        GenericRecord event = reader.read(null, decoder);*/
+
+        /*Struct expected = new Struct(expectedSchema)
+                .put("datekey", dateDef.toString())
+                .put("timekey", timeDef.toString())
+                .put("timestampkey", tsDef.toString())
+                .put("decimalkey", decimalDef.toString())
+                .put("event", new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
+
+        System.out.println(expected);*/
+
+        schemaRegistry.register(TOPIC+ "-value", avroSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(Collections.singletonMap(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"), false);
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
+        //assertEquals(expected, schemaAndValue.value());
+        //System.out.println(expected);
+        System.out.println(schemaAndValue.value());
     }
-*/
 
-/*    private void testVersionExtracted(String subject, KafkaAvroSerializer serializer, JsonConverter jsonConverter) throws IOException, RestClientException {
-        // Pre-register to ensure ordering
-        org.apache.avro.Schema avroSchema1 = org.apache.avro.SchemaBuilder
-                .record("Foo").fields()
-                .requiredInt("key")
+    @Test
+    public void testUTF8() throws RestClientException, IOException {
+        Map<String, String> map = Stream.of(
+                new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
+                new AbstractMap.SimpleImmutableEntry<>("schema.names", "ComplexSchemaName"),
+                new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.int32", "intkey"),
+                new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.string", "stringkey"),
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.PAYLOAD_FIELD_NAME, "event"),
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro")
+        )
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        converter.configure(map, false);
+
+        org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
+                .optionalInt("int32")
                 .endRecord();
-        schemaRegistry.register(subject, new AvroSchema(avroSchema1));
 
-        org.apache.avro.Schema avroSchema2 = org.apache.avro.SchemaBuilder
-                .record("Foo").fields()
-                .requiredInt("key")
-                .requiredString("value")
+        org.apache.avro.Schema subrecord1Schema = org.apache.avro.SchemaBuilder.record("subrecord1").fields()
+                .name("subrecord2").type(subrecord2Schema)
+                .noDefault()
+                .name("array").type().array().items().unionOf()
+                .nullType().and().stringType().endUnion()
+                .noDefault()
                 .endRecord();
-        schemaRegistry.register(subject, new AvroSchema(avroSchema2));
 
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .nullableInt("int8", 2)
+                .requiredInt("int16")
+                .requiredInt("int32")
+                .requiredInt("int64")
+                .requiredFloat("float32")
+                .requiredBoolean("boolean")
+                .optionalString("string")
+                .requiredBytes("bytes")
+                .name("array").type().array().items().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING)).noDefault()
+                .name("map").type().map().values().type(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.INT)).noDefault()
+                .name("subrecord1").type(subrecord1Schema).noDefault()
+                .endRecord()
+                ;
 
-        // Get serialized data
-        org.apache.avro.generic.GenericRecord avroRecord1
-                = new org.apache.avro.generic.GenericRecordBuilder(avroSchema1).set("key", 15).build();
-        byte[] serializedRecord1 = serializer.serialize(TOPIC, avroRecord1);
-        org.apache.avro.generic.GenericRecord avroRecord2
-                = new org.apache.avro.generic.GenericRecordBuilder(avroSchema2).set("key", 15).set
-                ("value", "bar").build();
-        byte[] serializedRecord2 = serializer.serialize(TOPIC, avroRecord2);
+        System.out.println(avroSchema);
 
-
-        SchemaAndValue converted1 = jsonConverter.toConnectData(TOPIC, serializedRecord1);
-        assertEquals(1L, (long) converted1.schema().version());
-
-        SchemaAndValue converted2 = jsonConverter.toConnectData(TOPIC, serializedRecord2);
-        assertEquals(2L, (long) converted2.schema().version());
-    }*/
-
-
-/*    @Test
-    public void testVersionMaintained() {
-        // Version info provided from the Copycat schema should be maintained. This should be true
-        // regardless of any underlying schema registry versioning since the versions are explicitly
-        // specified by the connector.
-
-        // Use newer schema first
-        Schema newerSchema = SchemaBuilder.struct().version(2)
-                .field("orig", Schema.OPTIONAL_INT16_SCHEMA)
-                .field("new", Schema.OPTIONAL_INT16_SCHEMA)
+        GenericData.Record struct = new GenericRecordBuilder(avroSchema)
+                .set("int8", 12)
+                .set("int16", 12)
+                .set("int32", 12)
+                .set("int64", 12L)
+                .set("float32", 12.2f)
+                .set("boolean", true)
+                .set("string", "stringyåøæ¤#&|§Ҋ ҈Ҏ")
+                .set("bytes", ByteBuffer.wrap("foo".getBytes()))
+                .set("array", Arrays.asList("a", "b", "c"))
+                .set("map", Collections.singletonMap("field", 1))
+                .set("subrecord1", new GenericRecordBuilder(subrecord1Schema)
+                        .set("subrecord2", new GenericRecordBuilder(subrecord2Schema)
+                                .set("int32", 199)
+                                .build())
+                        .set("array", Collections.singletonList("x"))
+                        .build())
                 .build();
-        SchemaAndValue newer = new SchemaAndValue(newerSchema, new Struct(newerSchema));
-        byte[] newerSerialized = converter.fromConnectData(TOPIC, newer.schema(), newer.value());
 
-        Schema olderSchema = SchemaBuilder.struct().version(1)
-                .field("orig", Schema.OPTIONAL_INT16_SCHEMA)
-                .build();
-        SchemaAndValue older = new SchemaAndValue(olderSchema, new Struct(olderSchema));
-        byte[] olderSerialized = converter.fromConnectData(TOPIC, older.schema(), older.value());
+        SchemaBuilder expectedBuilder = SchemaBuilder.struct()
+                .field("intkey", SchemaBuilder.int8().doc("int8 field").build())
+                .field("stringkey", Schema.STRING_SCHEMA)
+                .field("event", Schema.STRING_SCHEMA);
+        // Because of registration in schema registry and lookup, we'll have added a version number
+        Schema expectedSchema = expectedBuilder.version(1).build();
+        Struct expected = new Struct(expectedSchema)
+                .put("intkey", (byte) 12)
+                .put("stringkey", "stringyåøæ¤#&|§Ҋ ҈Ҏ")
+                .put("event", struct.toString());
 
-        assertEquals(2L, (long) converter.toConnectData(TOPIC, newerSerialized).schema().version());
-        assertEquals(1L, (long) converter.toConnectData(TOPIC, olderSerialized).schema().version());
-    }*/
+        schemaRegistry.register(TOPIC+ "-value", avroSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(Collections.singletonMap(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"), false);
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
+        //assertEquals(expected, schemaAndValue.value());
+        System.out.println(expected);
+        System.out.println(schemaAndValue.value());
+    }
 
+    @Test
+    public void testSchemaLogicalTypeToStringConversion() {
+        org.apache.avro.Schema dateSchema = org.apache.avro.SchemaBuilder.builder().intType();
+        LogicalTypes.date().addToSchema(dateSchema);
 
-/*    @Test
-    public void testSameSchemaMultipleTopicForValue() throws IOException, RestClientException {
-        SchemaRegistryClient schemaRegistry = new MockSchemaRegistryClient();
-        JsonConverter jsonConverter = new JsonConverter(schemaRegistry);
-        jsonConverter.configure(SR_CONFIG, false);
-        assertSameSchemaMultipleTopic(jsonConverter, schemaRegistry, false);
-    }*/
+        org.apache.avro.Schema timeSchema = org.apache.avro.SchemaBuilder.builder().intType();
+        LogicalTypes.timeMillis().addToSchema(timeSchema);
 
-/*    @Test
-    public void testSameSchemaMultipleTopicForKey() throws IOException, RestClientException {
-        SchemaRegistryClient schemaRegistry = new MockSchemaRegistryClient();
-        JsonConverter jsonConverter = new JsonConverter(schemaRegistry);
-        jsonConverter.configure(SR_CONFIG, true);
-        assertSameSchemaMultipleTopic(jsonConverter, schemaRegistry, true);
-    }*/
+        org.apache.avro.Schema timemSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.timeMicros().addToSchema(timemSchema);
 
-/*    @Test
-    public void testExplicitlyNamedNestedMapsWithNonStringKeys() {
-        final Schema schema = SchemaBuilder.map(
-                Schema.OPTIONAL_STRING_SCHEMA,
-                SchemaBuilder.map(
-                        Schema.OPTIONAL_STRING_SCHEMA,
-                        Schema.INT32_SCHEMA
-                ).name("foo.bar").build()
-        ).name("biz.baz").version(1).build();
-        final JsonConverter jsonConverter = new JsonConverter(new MockSchemaRegistryClient());
-        jsonConverter.configure(
-                Collections.singletonMap(
-                        AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "localhost"
-                ),
-                false
-        );
-        final Object value = Collections.singletonMap("foo", Collections.singletonMap("bar", 1));
+        org.apache.avro.Schema tsSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.timestampMillis().addToSchema(tsSchema);
 
-        final byte[] bytes = jsonConverter.fromConnectData("topic", schema, value);
-        final SchemaAndValue schemaAndValue = jsonConverter.toConnectData("topic", bytes);
+        org.apache.avro.Schema tsmSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.timestampMicros().addToSchema(tsmSchema);
 
-        assertThat(schemaAndValue.schema(), equalTo(schema));
-        assertThat(schemaAndValue.value(), equalTo(value));
-    }*/
+        org.apache.avro.Schema ltsSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.localTimestampMillis().addToSchema(ltsSchema);
 
-/*    private void assertSameSchemaMultipleTopic(JsonConverter converter, SchemaRegistryClient schemaRegistry, boolean isKey) throws IOException, RestClientException {
-        org.apache.avro.Schema avroSchema1 = org.apache.avro.SchemaBuilder
-                .record("Foo").fields()
-                .requiredInt("key")
+        org.apache.avro.Schema ltsmSchema = org.apache.avro.SchemaBuilder.builder().longType();
+        LogicalTypes.localTimestampMicros().addToSchema(ltsmSchema);
+
+        org.apache.avro.Schema decimalSchema = org.apache.avro.SchemaBuilder.builder().bytesType();
+        LogicalTypes.decimal(64, 0).addToSchema(decimalSchema);
+
+        org.apache.avro.Schema uuidSchema = org.apache.avro.SchemaBuilder.builder().stringType();
+        LogicalTypes.uuid().addToSchema(uuidSchema);
+
+        org.apache.avro.Schema avroSchema = org.apache.avro.SchemaBuilder.record("ComplexSchemaName")
+                .fields()
+                .name("date").type(dateSchema).noDefault()
+                .name("time").type(timeSchema).noDefault()
+                .name("timemicros").type(timemSchema).noDefault()
+                .name("timestamp").type(tsSchema).noDefault()
+                .name("timestampmicros").type(tsmSchema).noDefault()
+                .name("localtimestamp").type(ltsSchema).noDefault()
+                .name("localtimestampmicros").type(ltsmSchema).noDefault()
+                .name("decimal").type(decimalSchema).noDefault()
+                .name("uuid").type(uuidSchema).noDefault()
                 .endRecord();
 
-        org.apache.avro.Schema avroSchema2_1 = org.apache.avro.SchemaBuilder
-                .record("Foo").fields()
-                .requiredInt("key")
-                .requiredString("value")
-                .endRecord();
-        org.apache.avro.Schema avroSchema2_2 = org.apache.avro.SchemaBuilder
-                .record("Foo").fields()
-                .requiredInt("key")
-                .requiredString("value")
-                .endRecord();
-        String subjectSuffix = isKey ? "key" : "value";
-        schemaRegistry.register("topic1-" + subjectSuffix, new AvroSchema(avroSchema2_1));
-        schemaRegistry.register("topic2-" + subjectSuffix, new AvroSchema(avroSchema1));
-        schemaRegistry.register("topic2-" + subjectSuffix, new AvroSchema(avroSchema2_2));
+        org.apache.avro.Schema tgtSchema = createLogicalTypesStringSchema(avroSchema);
 
-        org.apache.avro.generic.GenericRecord avroRecord1
-                = new org.apache.avro.generic.GenericRecordBuilder(avroSchema2_1).set("key", 15).set
-                ("value", "bar").build();
-        org.apache.avro.generic.GenericRecord avroRecord2
-                = new org.apache.avro.generic.GenericRecordBuilder(avroSchema2_2).set("key", 15).set
-                ("value", "bar").build();
-
-
-        KafkaAvroSerializer serializer = new KafkaAvroSerializer(schemaRegistry);
-        serializer.configure(SR_CONFIG, isKey);
-        byte[] serializedRecord1 = serializer.serialize("topic1", avroRecord1);
-        byte[] serializedRecord2 = serializer.serialize("topic2", avroRecord2);
-
-        SchemaAndValue converted1 = converter.toConnectData("topic1", serializedRecord1);
-        assertEquals(1L, (long) converted1.schema().version());
-
-        SchemaAndValue converted2 = converter.toConnectData("topic2", serializedRecord2);
-        assertEquals(2L, (long) converted2.schema().version());
-
-        converted2 = converter.toConnectData("topic2", serializedRecord2);
-        assertEquals(2L, (long) converted2.schema().version());
-    }*/
+        Assert.assertEquals("{\"type\":\"record\",\"name\":\"ComplexSchemaName\",\"fields\":[{\"name\":\"date\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsondate\"}},{\"name\":\"time\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsontime-millis\"}},{\"name\":\"timemicros\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsontime-micros\"}},{\"name\":\"timestamp\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsontimestamp-millis\"}},{\"name\":\"timestampmicros\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsontimestamp-micros\"}},{\"name\":\"localtimestamp\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsonlocal-timestamp-millis\"}},{\"name\":\"localtimestampmicros\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsonlocal-timestamp-micros\"}},{\"name\":\"decimal\",\"type\":{\"type\":\"string\",\"logicalType\":\"jsondecimal\"}},{\"name\":\"uuid\",\"type\":{\"type\":\"string\",\"logicalType\":\"uuid\"}}]}",
+                tgtSchema.toString());
+    }
 }
