@@ -244,7 +244,7 @@ public class JsonConverter implements Converter {
                                 throw new DataException(String.format("Could not close output stream when processing avro value \n: %s", cr.value), e);
                             }
                         }
-                        targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
+                        //targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
 
                         return new SchemaAndValue(targetSchema, targetStruct);
                     });
