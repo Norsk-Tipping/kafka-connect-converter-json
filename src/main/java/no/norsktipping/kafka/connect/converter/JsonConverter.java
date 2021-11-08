@@ -186,7 +186,7 @@ public class JsonConverter implements Converter {
         //instructions differ from avro processing vs json processing
         switch (jsonConverterConfig.getInputFormat()) {
             case "avro":
-                logger.debug("Creating instructions to cache for new schema {}", cr.schema);
+                logger.debug("Creating instructions to cache for new schema {}", ((GenericContainer) cr.value).getSchema());
                 if (cr.value instanceof IndexedRecord) {
                     //get the record object that triggered this instruction creation step
                     IndexedRecord deserialized = (IndexedRecord) cr.value;
@@ -229,7 +229,6 @@ public class JsonConverter implements Converter {
                         Struct targetStruct = new Struct(targetSchema);
                         // Set the configured .keys prefixed fields with their values
                         gettingKeyFields.forEach(ai -> targetStruct.put(ai.newName, ai.instruction.apply(o)));
-                        // Set the "payload.field.name" field with the raw message as JSON with a simple .toString() of the GenericRecord
 
                         try {
                             outputStream.reset();
@@ -245,19 +244,19 @@ public class JsonConverter implements Converter {
                                 throw new DataException(String.format("Could not close output stream when processing avro value \n: %s", cr.value), e);
                             }
                         }
-                        targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
+                        //targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
 
                         return new SchemaAndValue(targetSchema, targetStruct);
                     });
                 }
                 throw new DataException(
-                        String.format("Failed to build instructions to cache for record schema %s record value %s: ", cr.schema, cr.value)
+                        String.format("Failed to build instructions to cache for record value %s: ", cr.value)
                 );
             case "json":
-                logger.debug("Creating instructions to cache for target schema {}", cr.schema);
+                logger.debug("Creating instructions to cache for target schema {}", cr.value);
                 //Create new list of instructions
                 List<Instruction> gettingKeyFields = new ArrayList<>();
-                String originalSchema = cr.schema;
+                String originalSchema = (String ) cr.value;
                 //If the converter is configured with any keys...i.e. "keys." prefix in config...
                 Optional.ofNullable(jsonConverterConfig.getKeys())
                         //get the configured key renaming pairs associated to the schema identifier of this JSON object
@@ -334,7 +333,7 @@ public class JsonConverter implements Converter {
             //Apply the already cached extraction and json serialization instructions for this schema
             //if none are cached, due to an empty cache or a newly encountered schema, new instructions will be populated by method getExtractInstruction
             //which is configured to be called in the extractInstructionCache
-            return extractInstructionCache.get(new CacheRequest(schema, jsonObject))
+            return extractInstructionCache.get(new CacheRequest(schema.hashCode(), schema))
                     .getConverterFunction().apply(jsonObject);
         } catch (JSONException e) {
           /*if source structures with an array as root or a primitive instead of a root object would need to be handled the logic can be extended here
@@ -379,7 +378,7 @@ public class JsonConverter implements Converter {
                 //Apply the already cached extraction and json serialization instructions for this schema
                 //if none are cached, due to an empty cache or a newly encountered schema, new instructions will be populated by method getExtractInstruction
                 //which is configured to be called in the extractInstructionCache
-                return extractInstructionCache.get(new CacheRequest(deserialized.getSchema().toString(), deserialized))
+                return extractInstructionCache.get(new CacheRequest(deserialized.getSchema().hashCode(), deserialized))
                         .getConverterFunction().apply(deserialized);
             } /*if source structures with an array as root or a primitive instead of a root record would need to be handled the logic can be extended here
             }*/
@@ -772,29 +771,28 @@ public class JsonConverter implements Converter {
 
     private static class CacheRequest {
 
-        private final String schema;
+        private final int schemahash;
         private final Object value;
 
-        private CacheRequest(String schema, Object value) {
-            this.schema = schema;
+        private CacheRequest(int schemahash, Object value) {
+            this.schemahash = schemahash;
             this.value = value;
         }
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             CacheRequest that = (CacheRequest) o;
-            return schema.equals(that.schema);
+            return schemahash == (that.schemahash);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(schema);
+            return schemahash;
         }
 
-        public String getSchema() {
-            return schema;
+        public int getSchemaHash() {
+            return schemahash;
         }
 
         public Object getValue() {
