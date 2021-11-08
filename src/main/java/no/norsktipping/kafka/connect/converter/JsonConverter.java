@@ -170,7 +170,7 @@ public class JsonConverter implements Converter {
                         )
                 );
         targetSchema.field(
-                jsonConverterConfig.getPayloadFieldName(),
+                jsonConverterConfig.ucase(jsonConverterConfig.getPayloadFieldName()),
                 Schema.STRING_SCHEMA
         );
         Schema newSchema = targetSchema.build();
@@ -234,7 +234,7 @@ public class JsonConverter implements Converter {
                             outputStream.reset();
                             writer.write(((GenericRecord) o), encoder);
                             encoder.flush();
-                            targetStruct.put(jsonConverterConfig.getPayloadFieldName(), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
+                            targetStruct.put(jsonConverterConfig.ucase(jsonConverterConfig.getPayloadFieldName()), new String(outputStream.toByteArray(), StandardCharsets.UTF_8));
                         } catch (IOException e) {
                             throw new DataException(String.format("Could not write avro record to json string \n: %s", cr.value), e);
                         } finally {
@@ -280,7 +280,7 @@ public class JsonConverter implements Converter {
                     gettingKeyFields.forEach(si -> targetStruct.put(si.newName, si.instruction.apply(o)));
 
                     // Set the "payload.field.name" field with the raw message as JSON with a simple .toString() of the JSON object
-                    targetStruct.put(jsonConverterConfig.getPayloadFieldName(), o.toString());
+                    targetStruct.put(jsonConverterConfig.ucase(jsonConverterConfig.getPayloadFieldName()), o.toString());
 
                     return new SchemaAndValue(targetSchema, targetStruct);
                 });

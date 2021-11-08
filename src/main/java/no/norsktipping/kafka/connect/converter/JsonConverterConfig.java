@@ -18,11 +18,13 @@ public class JsonConverterConfig extends AbstractConfig {
     public static final String INPUT_FORMAT = "input.format";
     public static final String SCHEMA_NAMES = "schema.names";
     public static final String ALLOWNONINDEXED = "allownonindexed";
+    public static final String UPPERCASE = "uppercase";
 
     private static  String payloadFieldName;
     private static  String inputFormat;
     private static Boolean allowNonIndexed;
     private static List<String> schemaNames;
+    private static Boolean uppercase;
 
     private final Map<String, Map<String, String>> keys;
     private Map<String, AbstractMap.SimpleEntry<String, Object>> schemaIdentifiers;
@@ -34,6 +36,7 @@ public class JsonConverterConfig extends AbstractConfig {
         inputFormat = inputFormat();
         allowNonIndexed = allowNonIndexed();
         schemaNames = schemaNames();
+        uppercase = uppercase();
 
         if(getInputFormat().equals("avro")) {
             avroConverterConfig = new AvroConverterConfig(props);
@@ -58,8 +61,9 @@ public class JsonConverterConfig extends AbstractConfig {
                 }, ConfigDef.Importance.HIGH, "Specify the input format of the source topic the converter is used on: json/avro ")
                 .define(SCHEMA_NAMES, ConfigDef.Type.LIST, new ArrayList<>(), ConfigDef.Importance.HIGH, "Specify the schema names expected on the source topic")
                 .define(ALLOWNONINDEXED, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.MEDIUM, "When true, Kafka records without matching schema in " + SCHEMA_NAMES
-                        + " and without matching key instructions in config will be writting to a single column configured in " + PAYLOAD_FIELD_NAME + " other columns can be NULL");
-
+                        + " and without matching key instructions in config will be writting to a single column configured in " + PAYLOAD_FIELD_NAME + " other columns can be NULL")
+                .define(UPPERCASE, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.LOW, "Specify if target columns and table name are to be uppercase true or lowercase false ")
+                ;
         return configDef;
     }
 
@@ -67,7 +71,7 @@ public class JsonConverterConfig extends AbstractConfig {
         Map<String, Map<String, String>> schemaKeyMapping = getSchemaNames().stream().map(schemaName ->
                 new AbstractMap.SimpleEntry<>(
                         schemaName,
-                        (Map) this.originalsWithPrefix(schemaName + ".").entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, (entry) -> Objects.toString(entry.getValue())))))
+                        (Map) this.originalsWithPrefix(schemaName + ".").entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, (entry) -> ucase(Objects.toString(entry.getValue()))))))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         schemaKeyMapping.values().forEach(m -> m.values().forEach(newKeyName -> {
             if (!schemaKeyMapping.values().stream().allMatch(m2 -> m2.values().stream().anyMatch(nkn -> nkn.equals(newKeyName)))) {
@@ -120,6 +124,14 @@ public class JsonConverterConfig extends AbstractConfig {
     }
     private String payLoadFieldName(){
         return this.getString(PAYLOAD_FIELD_NAME);
+    }
+
+    private Boolean uppercase(){
+        return this.getBoolean(UPPERCASE);
+    }
+
+    public String ucase(String string) {
+        return uppercase ? string.toUpperCase() : string.toLowerCase();
     }
 
     public String getInputFormat() {
