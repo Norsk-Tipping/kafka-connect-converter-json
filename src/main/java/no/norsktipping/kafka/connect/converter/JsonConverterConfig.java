@@ -62,7 +62,7 @@ public class JsonConverterConfig extends AbstractConfig {
                 .define(SCHEMA_NAMES, ConfigDef.Type.LIST, new ArrayList<>(), ConfigDef.Importance.HIGH, "Specify the schema names expected on the source topic")
                 .define(ALLOWNONINDEXED, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.MEDIUM, "When true, Kafka records without matching schema in " + SCHEMA_NAMES
                         + " and without matching key instructions in config will be writting to a single column configured in " + PAYLOAD_FIELD_NAME + " other columns can be NULL")
-                .define(UPPERCASE, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.LOW, "Specify if target columns and table name are to be uppercase true or lowercase false ")
+                .define(UPPERCASE, ConfigDef.Type.BOOLEAN, true, ConfigDef.Importance.LOW, "Specify if target columns and table name are to be uppercase true or lowercase false ")
                 ;
         return configDef;
     }
