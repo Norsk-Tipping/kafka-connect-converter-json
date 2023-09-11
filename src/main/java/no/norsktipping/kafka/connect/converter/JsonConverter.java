@@ -220,7 +220,7 @@ public class JsonConverter implements Converter {
                     writer.getData().addLogicalTypeConversion(new JSONTimeMicrosConversion());
                     final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                     final JsonEncoder encoder = getJsonEncoder(jsonLogicalTypedSchema, outputStream);
-                    encoder.setIncludeNamespace(false);
+                    encoder.setIncludeNamespace(jsonConverterConfig.getIncludeNamespace());
 
                     //Incorporate the key field extraction instructions in a bigger lambda that creates a Kafka connect target Struct...
                     //...applies each of the key extraction instructions i.e. adding them to the target Struct
@@ -420,7 +420,6 @@ public class JsonConverter implements Converter {
                                 eo = null;
                             }
                             return eo;
-                            //throw new DataException(String.format("The following key is not found in the JSON object: %s", fieldnames[0]));
                         } else if (gr instanceof JSONArray) {
                             Object eo;
                             try {
@@ -429,7 +428,6 @@ public class JsonConverter implements Converter {
                                 eo = null;
                             }
                             return eo;
-                            //throw new DataException(String.format("The following key is not found in the JSON object: %s", fieldnames[0]));
                         }
                         return null;
                     }).orElseThrow(() -> new DataException(

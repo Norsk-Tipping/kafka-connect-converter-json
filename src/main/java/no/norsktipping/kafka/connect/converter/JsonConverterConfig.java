@@ -19,12 +19,15 @@ public class JsonConverterConfig extends AbstractConfig {
     public static final String SCHEMA_NAMES = "schema.names";
     public static final String ALLOWNONINDEXED = "allownonindexed";
     public static final String UPPERCASE = "uppercase";
+    public static final String INCLUDENAMESPACE = "includenamespace";
 
     private static  String payloadFieldName;
     private static  String inputFormat;
     private static Boolean allowNonIndexed;
     private static List<String> schemaNames;
     private static Boolean uppercase;
+    private static Boolean includeNamespace;
+
 
     private final Map<String, Map<String, String>> keys;
     private Map<String, AbstractMap.SimpleEntry<String, Object>> schemaIdentifiers;
@@ -37,6 +40,7 @@ public class JsonConverterConfig extends AbstractConfig {
         allowNonIndexed = allowNonIndexed();
         schemaNames = schemaNames();
         uppercase = uppercase();
+        includeNamespace = includeNamespace();
 
         if(getInputFormat().equals("avro")) {
             avroConverterConfig = new AvroConverterConfig(props);
@@ -63,6 +67,7 @@ public class JsonConverterConfig extends AbstractConfig {
                 .define(ALLOWNONINDEXED, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.MEDIUM, "When true, Kafka records without matching schema in " + SCHEMA_NAMES
                         + " and without matching key instructions in config will be writting to a single column configured in " + PAYLOAD_FIELD_NAME + " other columns can be NULL")
                 .define(UPPERCASE, ConfigDef.Type.BOOLEAN, true, ConfigDef.Importance.LOW, "Specify if target columns and table name are to be uppercase true or lowercase false ")
+                .define(INCLUDENAMESPACE, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.LOW, "When true, produced JSON will include recordName.")
                 ;
         return configDef;
     }
@@ -153,6 +158,9 @@ public class JsonConverterConfig extends AbstractConfig {
         }
         return this.getList(SCHEMA_NAMES);
     }
+
+    public Boolean getIncludeNamespace() {return includeNamespace;}
+    private Boolean includeNamespace() {return this.getBoolean(INCLUDENAMESPACE); }
 
     public static class Builder {
 

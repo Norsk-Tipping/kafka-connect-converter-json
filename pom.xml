@@ -8,7 +8,7 @@
     <artifactId>kafka-connect-converter-json</artifactId>
     <name>kafka-connect-converter-json</name>
     <packaging>jar</packaging>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
