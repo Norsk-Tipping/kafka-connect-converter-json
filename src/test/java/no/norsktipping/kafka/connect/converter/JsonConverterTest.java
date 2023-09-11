@@ -44,6 +44,109 @@ public class JsonConverterTest {
           }
 
     @Test
+    public void testCustomerStateTopic() throws RestClientException, IOException {
+        Map<String, String> map = Stream.of(
+                        new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
+                        new AbstractMap.SimpleImmutableEntry<>("schema.names", "customer"),
+                        new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.int32", "intkey"),
+                        new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.string", "stringkey"),
+                        new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.PAYLOAD_FIELD_NAME, "event"),
+                        new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro"),
+                        new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INCLUDENAMESPACE, "true")
+                )
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        converter.configure(map, false);
+
+        org.apache.avro.Schema nameSchema = org.apache.avro.SchemaBuilder.builder()
+                .record("Name")
+                .fields()
+                .requiredString("firstname")
+                .requiredString("lastname")
+                .endRecord();
+
+
+        org.apache.avro.Schema addressSchema = org.apache.avro.SchemaBuilder
+                .record("Address")
+                .fields()
+                .optionalString("type")
+                .optionalString("address1")
+                .endRecord();
+
+        org.apache.avro.Schema addressListSchema = org.apache.avro.SchemaBuilder
+                .array().items(addressSchema);
+
+        org.apache.avro.Schema stateSchema = org.apache.avro.SchemaBuilder
+                .record("state")
+                .namespace("nt.customer.internal")
+                .fields()
+                    .requiredString("customerId")
+                    .name("Name").type(nameSchema).noDefault()
+                    .name("Address").type(addressListSchema).noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema addressRemovedSchema = org.apache.avro.SchemaBuilder
+                .record("AddressRemoved")
+                .fields()
+                .name("Address").type(addressSchema).noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema addressAddedSchema = org.apache.avro.SchemaBuilder
+                .record("AddressAdded")
+                .fields()
+                .name("Address").type(addressSchema).noDefault()
+                .endRecord();
+
+        org.apache.avro.Schema eventSchema = org.apache.avro.SchemaBuilder
+                .unionOf().type(addressAddedSchema)
+                .and().type(addressRemovedSchema)
+                .endUnion();
+
+        org.apache.avro.Schema customerSchema = org.apache.avro.SchemaBuilder
+                .record("customer")
+                .namespace("nt.customer.internal")
+                .fields()
+                .name("CustomerState").type(stateSchema).noDefault()
+                .name("Event").type(eventSchema).noDefault()
+                .endRecord();
+
+
+        System.out.println(customerSchema);
+
+        GenericData.Record struct = new GenericRecordBuilder(customerSchema)
+                .set("CustomerState", new GenericRecordBuilder(stateSchema)
+                    .set("customerId", "id01")
+                    .set("Name", new GenericRecordBuilder(nameSchema)
+                        .set("firstname", "Jørn")
+                        .set("lastname", "Hanserud")
+                        .build())
+                    .set("Address", Arrays.asList(
+                            new GenericRecordBuilder(addressSchema)
+                            .set("type", "hjemme")
+                            .set("address1", "Ajervegen 2")
+                            .build(),
+                            new GenericRecordBuilder(addressSchema)
+                            .set("type", "hytta")
+                            .set("address1", "Meksikovegen 893")
+                            .build()
+                            ))
+                    .build())
+                .set("Event", new GenericRecordBuilder(addressRemovedSchema)
+                        .set("Address", new GenericRecordBuilder(addressSchema)
+                            .set("type", "hytta")
+                            .build())
+                    .build())
+                .build();
+
+        schemaRegistry.register(TOPIC+ "-value", customerSchema);
+        serializer = new KafkaAvroSerializer(schemaRegistry);
+        serializer.configure(Collections.singletonMap(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"), false);
+        SchemaAndValue schemaAndValue = converter.toConnectData(TOPIC, serializer.serialize(TOPIC, struct));
+
+        System.out.println(schemaAndValue.value());
+
+    }
+
+    @Test
     public void testComplex() throws RestClientException, IOException {
         Map<String, String> map = Stream.of(
                 new AbstractMap.SimpleImmutableEntry<>(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://mock:8081"),
@@ -51,11 +154,11 @@ public class JsonConverterTest {
                 new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.int32", "intkey"),
                 new AbstractMap.SimpleImmutableEntry<>("ComplexSchemaName.string", "stringkey"),
                 new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.PAYLOAD_FIELD_NAME, "event"),
-                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro")
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro"),
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INCLUDENAMESPACE, "true")
                 )
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         converter.configure(map, false);
-
         org.apache.avro.Schema subrecord2Schema = org.apache.avro.SchemaBuilder.record("subrecord2").fields()
                 .optionalInt("int32")
                 .endRecord();
@@ -87,11 +190,11 @@ public class JsonConverterTest {
         System.out.println(avroSchema);
 
         GenericData.Record struct = new GenericRecordBuilder(avroSchema)
-                .set("int8", 12)
-                .set("int16", 12)
-                .set("int32", 12)
-                .set("int64", 12L)
-                .set("float32", 12.2f)
+                .set("int8", 120)
+                .set("int16", 120)
+                .set("int32", 120)
+                .set("int64", 120L)
+                .set("float32", 120.2f)
                 .set("boolean", true)
                 .set("string", "stringyåøæ¤#&|§")
                 .set("bytes", ByteBuffer.wrap("foo".getBytes()))
@@ -112,7 +215,7 @@ public class JsonConverterTest {
         // Because of registration in schema registry and lookup, we'll have added a version number
         Schema expectedSchema = expectedBuilder.version(1).build();
         Struct expected = new Struct(expectedSchema)
-                .put("intkey", (byte) 12)
+                .put("intkey", (byte) 120)
                 .put("stringkey", "stringyåøæ¤#&|§")
                 .put("event", struct.toString());
 
@@ -136,7 +239,8 @@ public class JsonConverterTest {
                 new AbstractMap.SimpleImmutableEntry<>("SimpleSchemaName.intkey", "intkey"),
                 new AbstractMap.SimpleImmutableEntry<>("SimpleSchemaName.keyname", "stringkey"),
                 new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.PAYLOAD_FIELD_NAME, "event"),
-                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro")
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INPUT_FORMAT, "avro"),
+                new AbstractMap.SimpleImmutableEntry<>(JsonConverterConfig.INCLUDENAMESPACE, "true")
         )
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         converter.configure(map, false);
@@ -173,11 +277,11 @@ public class JsonConverterTest {
         System.out.println(avroSchema);
 
         GenericData.Record struct = new GenericRecordBuilder(avroSchema)
-                .set("int8", 12)
-                .set("int16", 12)
-                .set("int32", 12)
-                .set("int64", 12L)
-                .set("float32", 12.2f)
+                .set("int8", 112)
+                .set("int16", 112)
+                .set("int32", 112)
+                .set("int64", 112L)
+                .set("float32", 112.2f)
                 .set("boolean", true)
                 .set("string", "stringyåøæ¤#&|§")
                 .set("bytes", ByteBuffer.wrap("foo".getBytes()))
@@ -203,11 +307,11 @@ public class JsonConverterTest {
         System.out.println(simpleAvroSchema);
 
         GenericData.Record simpleStruct = new GenericRecordBuilder(simpleAvroSchema)
-                .set("int8", 12)
-                .set("int16", 12)
-                .set("intkey", 12)
+                .set("int8", 112)
+                .set("int16", 112)
+                .set("intkey", 112)
                 .set("keyname", "stringyåøæ¤#&|§")
-                .set("int64", 12L)
+                .set("int64", 112L)
                 .build();
 
         SchemaBuilder expectedBuilder = SchemaBuilder.struct()
@@ -218,7 +322,7 @@ public class JsonConverterTest {
         Schema expectedSchema = expectedBuilder.version(1).build();
 
         Struct expected = new Struct(expectedSchema)
-                .put("intkey", (byte) 12)
+                .put("intkey", (byte) 112)
                 .put("stringkey", "stringyåøæ¤#&|§")
                 .put("event", struct.toString());
 
