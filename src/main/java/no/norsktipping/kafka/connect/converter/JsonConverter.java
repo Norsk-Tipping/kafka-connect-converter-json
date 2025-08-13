@@ -117,6 +117,7 @@ public class JsonConverter implements Converter {
             LogicalTypes.register(JSONDECIMAL, new JSONDecimalFactory());
             LogicalTypes.register(JSONTIME_MICROS, new JSONTimeMicrosFactory());
             LogicalTypes.register(JSONLOCAL_TIMESTAMP_MICROS, new JSONLocalTimestampMicrosFactory());
+            LogicalTypes.register(JSON_UUID, new JSONUUIDFactory());
             LogicalTypes.register(JSONLOCAL_TIMESTAMP_MILLIS, new JSONLocalTimestampMillisFactory());
             LogicalTypes.register(JSONTIME_MILLIS, new JSONTimeMillisFactory());
             LogicalTypes.register(JSONTIMESTAMP_MICROS, new JSONTimestampMicrosFactory());
@@ -214,6 +215,7 @@ public class JsonConverter implements Converter {
                     writer.getData().addLogicalTypeConversion(new JSONDecimalConversion());
                     writer.getData().addLogicalTypeConversion(new JSONLocalTimestampMillisConversion());
                     writer.getData().addLogicalTypeConversion(new JSONLocalTimestampMicrosConversion());
+                    writer.getData().addLogicalTypeConversion(new JSONUUIDConversion());
                     writer.getData().addLogicalTypeConversion(new JSONTimestampMillisConversion());
                     writer.getData().addLogicalTypeConversion(new JSONTimestampMicrosConversion());
                     writer.getData().addLogicalTypeConversion(new JSONTimeMillisConversion());
@@ -598,6 +600,10 @@ public class JsonConverter implements Converter {
                             lt = new JSONLocalTimestampMicros();
                             lt.addToSchema(stringSchema);
                             break;
+                        case "uuid":
+                            lt = new JSONUUID();
+                            lt.addToSchema(stringSchema);
+                            break;
                         default:
                             throw new UnknownFormatConversionException(
                                 String.format("Can't convert the following format to a JSON string %s", originalSchema.getLogicalType().getName()));
@@ -811,6 +817,19 @@ public class JsonConverter implements Converter {
         }
     }
 
+    public static class JSONUUID extends LogicalType {
+        private JSONUUID() {
+            super(JSON_UUID);
+        }
+
+        public void validate(org.apache.avro.Schema schema) {
+            super.validate(schema);
+            if (schema.getType() != org.apache.avro.Schema.Type.STRING) {
+                throw new IllegalArgumentException("UUID can only be used with an underlying string type");
+            }
+        }
+    }
+
     public static class JSONLocalTimestampMillis extends LogicalType {
         private JSONLocalTimestampMillis() {
             super(JSONLOCAL_TIMESTAMP_MILLIS);
@@ -937,9 +956,17 @@ public class JsonConverter implements Converter {
     public static final String JSONTIMESTAMP_MICROS = "jsontimestamp-micros";
     public static final String JSONLOCAL_TIMESTAMP_MILLIS = "jsonlocal-timestamp-millis";
     public static final String JSONLOCAL_TIMESTAMP_MICROS = "jsonlocal-timestamp-micros";
+    public static final String JSON_UUID = "uuid";
 
     public static class JSONLocalTimestampMicrosFactory implements LogicalTypes.LogicalTypeFactory {
         private JSONLocalTimestampMicros type = new JSONLocalTimestampMicros();
+        @Override
+        public LogicalType fromSchema(org.apache.avro.Schema schema) {
+            return type;
+        }
+    }
+    public static class JSONUUIDFactory implements LogicalTypes.LogicalTypeFactory {
+        private JSONUUID type = new JSONUUID();
         @Override
         public LogicalType fromSchema(org.apache.avro.Schema schema) {
             return type;
@@ -1020,6 +1047,29 @@ public class JsonConverter implements Converter {
         }
     }
 
+    public static class JSONUUIDConversion extends Conversion<UUID> {
+
+      public Class<UUID> getConvertedType() {
+          return UUID.class;
+      }
+
+      public String getLogicalTypeName() {
+        return JSON_UUID;
+      }
+
+      public UUID fromCharSequence(CharSequence value, org.apache.avro.Schema schema, LogicalType type) {
+          return UUID.fromString(value.toString());
+      }
+
+      public String toCharSequence(UUID value, org.apache.avro.Schema schema, LogicalType type) {
+          return value.toString();
+      }
+
+      public org.apache.avro.Schema getRecommendedSchema() {
+          return LogicalTypes.uuid().addToSchema(org.apache.avro.Schema.create(org.apache.avro.Schema.Type.STRING));
+      }
+}
+   
     public static class JSONLocalTimestampMillisConversion extends Conversion<LocalDateTime> {
 
         public JSONLocalTimestampMillisConversion() {
