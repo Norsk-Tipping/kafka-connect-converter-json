@@ -113,15 +113,16 @@ public class JsonConverter implements Converter {
                         jsonConverterConfig.requestHeaders()
                 );
             }
-            LogicalTypes.register(JSONDATE, new JSONDateFactory());
-            LogicalTypes.register(JSONDECIMAL, new JSONDecimalFactory());
-            LogicalTypes.register(JSONTIME_MICROS, new JSONTimeMicrosFactory());
-            LogicalTypes.register(JSONLOCAL_TIMESTAMP_MICROS, new JSONLocalTimestampMicrosFactory());
-            LogicalTypes.register(JSON_UUID, new JSONUUIDFactory());
-            LogicalTypes.register(JSONLOCAL_TIMESTAMP_MILLIS, new JSONLocalTimestampMillisFactory());
-            LogicalTypes.register(JSONTIME_MILLIS, new JSONTimeMillisFactory());
-            LogicalTypes.register(JSONTIMESTAMP_MICROS, new JSONTimestampMicrosFactory());
-            LogicalTypes.register(JSONTIMESTAMP_MILLIS, new JSONTimestampMillisFactory());
+            // LogicalTypes.register(JSONDATE, new JSONDateFactory());
+            // LogicalTypes.register(JSONDECIMAL, new JSONDecimalFactory());
+            // LogicalTypes.register(JSONTIME_MICROS, new JSONTimeMicrosFactory());
+            // LogicalTypes.register(JSONLOCAL_TIMESTAMP_MICROS, new JSONLocalTimestampMicrosFactory());
+            // LogicalTypes.register(JSON_UUID, new JSONUUIDFactory());
+            // LogicalTypes.register(JSONLOCAL_TIMESTAMP_MILLIS, new JSONLocalTimestampMillisFactory());
+            // LogicalTypes.register(JSONTIME_MILLIS, new JSONTimeMillisFactory());
+            // LogicalTypes.register(JSONTIMESTAMP_MICROS, new JSONTimestampMicrosFactory());
+            // LogicalTypes.register(JSONTIMESTAMP_MILLIS, new JSONTimestampMillisFactory());
+
             //AVRO_USE_LOGICAL_TYPE_CONVERTERS_CONFIG is by default configured to true for this converter.
             //This is to assure that the io.confluent.kafka.serializers.AbstractKafkaAvroDeserializer gets configured to convert logicaltypes to their Java data type representation
             //indirectly this sets up the genericData is configured with logical type conversions as passed to GenericDatumReader(writerSchema, finalReaderSchema, genericData)
@@ -210,16 +211,24 @@ public class JsonConverter implements Converter {
                     //JSONENCODER
                     org.apache.avro.Schema jsonLogicalTypedSchema = createLogicalTypesStringSchema(((GenericRecord) cr.value).getSchema());
                     logger.info("Generated schema that will be used for JSON serialization: \n {}", jsonLogicalTypedSchema);
-                    final GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<>(jsonLogicalTypedSchema);
-                    writer.getData().addLogicalTypeConversion(new JSONDateConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONDecimalConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONLocalTimestampMillisConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONLocalTimestampMicrosConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONUUIDConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONTimestampMillisConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONTimestampMicrosConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONTimeMillisConversion());
-                    writer.getData().addLogicalTypeConversion(new JSONTimeMicrosConversion());
+		    // Create a custom GenericData instance for isolation
+		    final GenericData customData = new GenericData();
+
+		    // Add all conversions to the custom instance
+                    customData.addLogicalTypeConversion(new JSONDateConversion());
+                    customData.addLogicalTypeConversion(new JSONDecimalConversion());
+                    customData.addLogicalTypeConversion(new JSONLocalTimestampMillisConversion());
+                    customData.addLogicalTypeConversion(new JSONLocalTimestampMicrosConversion());
+                    customData.addLogicalTypeConversion(new JSONUUIDConversion());
+                    customData.addLogicalTypeConversion(new JSONTimestampMillisConversion());
+                    customData.addLogicalTypeConversion(new JSONTimestampMicrosConversion());
+                    customData.addLogicalTypeConversion(new JSONTimeMillisConversion());
+                    customData.addLogicalTypeConversion(new JSONTimeMicrosConversion());
+
+		    // Use this custom instance in your writer
+		    final GenericDatumWriter<GenericRecord> writer = 
+		    new GenericDatumWriter<>(jsonLogicalTypedSchema, customData);
+
                     final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                     final JsonEncoder encoder = getJsonEncoder(jsonLogicalTypedSchema, outputStream);
                     encoder.setIncludeNamespace(jsonConverterConfig.getIncludeNamespace());
@@ -958,68 +967,68 @@ public class JsonConverter implements Converter {
     public static final String JSONLOCAL_TIMESTAMP_MICROS = "jsonlocal-timestamp-micros";
     public static final String JSON_UUID = "uuid";
 
-    public static class JSONLocalTimestampMicrosFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONLocalTimestampMicros type = new JSONLocalTimestampMicros();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONUUIDFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONUUID type = new JSONUUID();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONLocalTimestampMillisFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONLocalTimestampMillis type = new JSONLocalTimestampMillis();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONTimestampMicrosFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONTimestampMicros type = new JSONTimestampMicros();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONTimestampMillisFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONTimestampMillis type = new JSONTimestampMillis();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONTimeMicrosFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONTimeMicros type = new JSONTimeMicros();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONTimeMillisFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONTimeMillis type = new JSONTimeMillis();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONDateFactory implements LogicalTypes.LogicalTypeFactory {
-        private JSONDate type = new JSONDate();
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return type;
-        }
-    }
-    public static class JSONDecimalFactory implements LogicalTypes.LogicalTypeFactory {
-        @Override
-        public LogicalType fromSchema(org.apache.avro.Schema schema) {
-            return new JSONDecimal(schema);
-        }
-    }
+    // public static class JSONLocalTimestampMicrosFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONLocalTimestampMicros type = new JSONLocalTimestampMicros();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONUUIDFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONUUID type = new JSONUUID();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONLocalTimestampMillisFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONLocalTimestampMillis type = new JSONLocalTimestampMillis();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONTimestampMicrosFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONTimestampMicros type = new JSONTimestampMicros();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONTimestampMillisFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONTimestampMillis type = new JSONTimestampMillis();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONTimeMicrosFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONTimeMicros type = new JSONTimeMicros();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONTimeMillisFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONTimeMillis type = new JSONTimeMillis();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONDateFactory implements LogicalTypes.LogicalTypeFactory {
+    //     private JSONDate type = new JSONDate();
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return type;
+    //     }
+    // }
+    // public static class JSONDecimalFactory implements LogicalTypes.LogicalTypeFactory {
+    //     @Override
+    //     public LogicalType fromSchema(org.apache.avro.Schema schema) {
+    //         return new JSONDecimal(schema);
+    //     }
+    // }
 
     public static class JSONLocalTimestampMicrosConversion extends Conversion<LocalDateTime> {
 
